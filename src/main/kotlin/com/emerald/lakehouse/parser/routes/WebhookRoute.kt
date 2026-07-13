@@ -11,6 +11,8 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.sql.DriverManager
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
@@ -34,12 +36,15 @@ fun Route.webhookRoute(config: AppConfig, cipher: ImberaLinkCipher?) {
 
     post("/webhooks/minio") {
         val notification = call.receive<MinioNotification>()
+        // MinIO codifica el key en URL dentro del payload real del webhook (p.ej. "/" -> "%2F",
+        // "=" -> "%3D") — hay que decodificarlo antes de filtrar por substring y antes de
+        // usarlo para leer el objeto real de S3 (el key físico sí tiene "/" literales).
         val objectKey = notification.Records.firstOrNull { record ->
-            val key = record.s3?.`object`?.key.orEmpty()
+            val key = URLDecoder.decode(record.s3?.`object`?.key.orEmpty(), StandardCharsets.UTF_8)
             record.eventName?.startsWith("s3:ObjectCreated:") == true &&
                 key.contains("telemetry/") &&
                 key.endsWith(".parquet")
-        }?.s3?.`object`?.key
+        }?.s3?.`object`?.key?.let { URLDecoder.decode(it, StandardCharsets.UTF_8) }
 
         if (objectKey == null) {
             call.respond(HttpStatusCode.OK, WebhookResponse(processed = false))
