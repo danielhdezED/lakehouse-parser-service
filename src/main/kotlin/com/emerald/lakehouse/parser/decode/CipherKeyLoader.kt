@@ -19,13 +19,21 @@ object CipherKeyLoader {
 
     fun load(path: String): ImberaLinkCipher? {
         val file = File(path)
-        if (!file.exists()) {
+        // Un bind mount de Docker crea un directorio vacío en el host si el archivo fuente
+        // todavía no existe (en vez de fallar) — hay que tratar eso, y un archivo vacío
+        // (placeholder), igual que "no existe".
+        if (!file.isFile || file.length() == 0L) {
             logger.warn(
-                "[CipherKeyLoader] {} no existe — solo se decodificarán firmwares sin cifrar (v126)",
+                "[CipherKeyLoader] {} no existe o está vacío — solo se decodificarán firmwares sin cifrar (v126)",
                 path,
             )
             return null
         }
-        return ImberaLinkCipher(file.readBytes().toUByteArray())
+        return try {
+            ImberaLinkCipher(file.readBytes().toUByteArray())
+        } catch (e: Exception) {
+            logger.error("[CipherKeyLoader] {} no se pudo cargar como llave válida: {}", path, e.message, e)
+            null
+        }
     }
 }
