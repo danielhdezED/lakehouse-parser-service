@@ -5,12 +5,13 @@ package com.emerald.lakehouse.parser.config
  * (minioadmin/minioadmin, postgres/ducklake, buckets bronze/silver) — mismo laboratorio,
  * comportamiento sin cambios si `docker-compose.yml` no pasa overrides.
  *
- * `parserCipherKeyPath` es la única variable nueva de este servicio: apunta al archivo con
- * los bytes crudos de la llave de descifrado de `ImberaLinkCipher` (v136/v621), montado de
- * solo lectura desde fuera del repo — mismo patrón que la Intermediate CA de mTLS en
- * `lakehouse-ingestion-api`. Este es el **único** servicio del ecosistema con acceso a esa
- * llave (ver docs/ai/security-guidelines.md en Coolector-SDK) — si el archivo no existe,
- * el servicio sigue funcionando decodificando solo firmwares sin cifrar (v126).
+ * `parserCipherKeyPath`/`parserImberaBlobPath` son las variables nuevas de este servicio:
+ * apuntan a DOS archivos montados de solo lectura desde fuera del repo (semilla `parsingKey`
+ * + blob ofuscado `IMBERA_KEY_BLOB`, ver `CipherKeyLoader.kt` para el porqué de dos archivos)
+ * — mismo patrón que la Intermediate CA de mTLS en `lakehouse-ingestion-api`. Este es el
+ * **único** servicio del ecosistema con acceso a esa llave (ver
+ * docs/ai/security-guidelines.md en Coolector-SDK) — si cualquiera de los dos archivos no
+ * existe, el servicio sigue funcionando decodificando solo firmwares sin cifrar (v126).
  */
 data class AppConfig(
     val minioEndpoint: String,
@@ -26,6 +27,7 @@ data class AppConfig(
     val duckLakeCatalogPassword: String,
     val duckLakeDataPath: String,
     val parserCipherKeyPath: String,
+    val parserImberaBlobPath: String,
 ) {
     companion object {
         fun fromEnvironment(): AppConfig = AppConfig(
@@ -43,6 +45,8 @@ data class AppConfig(
             duckLakeDataPath = System.getenv("DUCKLAKE_DATA_PATH") ?: "s3://ducklake-catalog/",
             parserCipherKeyPath = System.getenv("PARSER_CIPHER_KEY_PATH")
                 ?: "/etc/lakehouse-mtls/parser-cipher-key",
+            parserImberaBlobPath = System.getenv("PARSER_IMBERA_BLOB_PATH")
+                ?: "/etc/lakehouse-mtls/parser-imbera-blob",
         )
     }
 }

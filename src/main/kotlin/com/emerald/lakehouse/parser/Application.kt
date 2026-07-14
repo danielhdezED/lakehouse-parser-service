@@ -23,7 +23,7 @@ fun main() {
 fun Application.lakehouseParserModule(config: AppConfig) {
     // Se carga una sola vez al arrancar, no por request — ver kdoc de CipherKeyLoader sobre
     // por qué es best-effort (null si el archivo no está montado todavía).
-    val cipher = CipherKeyLoader.load(config.parserCipherKeyPath)
+    val cipher = CipherKeyLoader.load(config.parserCipherKeyPath, config.parserImberaBlobPath)
 
     install(ContentNegotiation) {
         json(Json { ignoreUnknownKeys = true })
