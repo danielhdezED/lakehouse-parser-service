@@ -4,6 +4,7 @@ import com.emerald.coolector.parser.utils.ImberaLinkCipher
 import com.emerald.lakehouse.parser.bronze.BronzeObjectReader
 import com.emerald.lakehouse.parser.decode.TelemetryDecoder
 import com.emerald.lakehouse.parser.silver.SilverWriter
+import com.emerald.lakehouse.parser.technology.MacTechnologyResolver
 import java.sql.Connection
 
 /**
@@ -31,14 +32,19 @@ object ParserPipeline {
         val documents = BronzeObjectReader.readDocuments(conn, bronzeObjectPath)
         if (documents.isEmpty()) return null
 
-        val records = TelemetryDecoder.decode(documents, cipher)
+        // Corrige `technology` (MAC-derivada, ver MacTechnologyResolver) antes de decodificar
+        // -- no solo para el path de partición de Silver, también porque
+        // FirmwareProfileResolver despacha ELTEC/Villa por ese mismo valor exacto.
+        val resolvedDocuments = documents.map { it.copy(technology = MacTechnologyResolver.resolve(it.idController, it.technology)) }
+
+        val records = TelemetryDecoder.decode(resolvedDocuments, cipher)
         if (records.isEmpty()) return null
 
-        val first = documents.first()
+        val first = resolvedDocuments.first()
         return SilverWriter.write(
             conn = conn,
             records = records,
-            technology = first.technology?.takeIf { it.isNotBlank() } ?: "ImberaLink",
+            technology = first.technology ?: MacTechnologyResolver.DEFAULT_TECHNOLOGY,
             deviceId = first.idController,
             extractionId = first.extractionId,
             silverRoot = silverRoot,
