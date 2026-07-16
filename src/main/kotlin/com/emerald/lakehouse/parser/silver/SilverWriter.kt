@@ -16,6 +16,23 @@ import java.sql.Timestamp
  * year=<YYYY>/month=<MM>/day=<DD>/`. El registro en la tabla del catálogo se hace leyendo
  * la misma tabla de staging que ya se usó para el `COPY` (sin releer desde S3 — son
  * exactamente las mismas filas).
+ *
+ * Idempotente por `extraction_id` (fix 2026-07-16, mismo bug que ya se corrigió en
+ * `GoldWriter` el 2026-07-15, un nivel más abajo en el pipeline — ver auditoría
+ * docs/ai/lakehouse-audit-2026-07-16.md, hallazgo C1, en el repo Coolector-SDK):
+ * - El `FILENAME_PATTERN` ya incluía `extraction_id` pero también un `{uuid}` — cada
+ *   redelivery del mismo objeto Bronze generaba un Parquet nuevo que nunca colisionaba
+ *   con el anterior, así que `OVERWRITE_OR_IGNORE` no tenía nada que reemplazar.
+ * - `upsertCatalogTable` insertaba en `silver.telemetry_decoded` sin comprobar si ese
+ *   `extraction_id` ya estaba registrado, así que una redelivery duplicaba filas en el
+ *   catálogo — y como `AnalyticsPipeline` lee el historial completo del dispositivo desde
+ *   esa misma tabla, la duplicación se propagaba en cascada hasta `gold/`.
+ * A diferencia de `GoldWriter` (que sobreescribe el archivo completo del dispositivo en
+ * cada corrida, porque siempre recalcula el historial entero), Silver solo escribe las
+ * filas de UNA extracción por invocación — el nombre determinístico usa `extraction_id`
+ * (no solo `device_id`) para que dos extracciones distintas del mismo dispositivo en el
+ * mismo día sigan generando archivos separados, y solo una redelivery de la MISMA
+ * extracción reemplace su propio archivo/filas anteriores.
  */
 object SilverWriter {
 
@@ -74,17 +91,17 @@ object SilverWriter {
                     FORMAT PARQUET,
                     PARTITION_BY (year, month, day),
                     OVERWRITE_OR_IGNORE,
-                    FILENAME_PATTERN 'silver_${safeExtraction}_{uuid}'
+                    FILENAME_PATTERN 'silver_${safeExtraction}'
                 )
                 """.trimIndent(),
             )
         }
 
-        upsertCatalogTable(conn)
+        upsertCatalogTable(conn, technology, deviceId, extractionId)
         return destinationPath
     }
 
-    private fun upsertCatalogTable(conn: Connection) {
+    private fun upsertCatalogTable(conn: Connection, technology: String, deviceId: String, extractionId: String) {
         val tableExists = conn.createStatement().use { stmt ->
             stmt.executeQuery(
                 "SELECT count(*) FROM information_schema.tables " +
@@ -92,12 +109,26 @@ object SilverWriter {
             ).use { rs -> rs.next() && rs.getInt(1) > 0 }
         }
 
-        conn.createStatement().use { stmt ->
-            if (!tableExists) {
+        if (!tableExists) {
+            conn.createStatement().use { stmt ->
                 stmt.execute("CREATE TABLE $CATALOG_TABLE AS SELECT * FROM $STAGING_TABLE")
-            } else {
-                stmt.execute("INSERT INTO $CATALOG_TABLE BY NAME SELECT * FROM $STAGING_TABLE")
             }
+            return
+        }
+
+        // Idempotencia por extraction_id: si esta misma extracción ya estaba registrada
+        // (redelivery del webhook, replay manual), se reemplazan sus filas en vez de
+        // duplicarlas — no toca las filas de otras extracciones del mismo dispositivo.
+        conn.prepareStatement(
+            "DELETE FROM $CATALOG_TABLE WHERE technology = ? AND device_id = ? AND extraction_id = ?",
+        ).use { ps ->
+            ps.setString(1, technology)
+            ps.setString(2, deviceId)
+            ps.setString(3, extractionId)
+            ps.executeUpdate()
+        }
+        conn.createStatement().use { stmt ->
+            stmt.execute("INSERT INTO $CATALOG_TABLE BY NAME SELECT * FROM $STAGING_TABLE")
         }
     }
 
