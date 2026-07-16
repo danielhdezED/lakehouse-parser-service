@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets
 import java.sql.DriverManager
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import org.slf4j.MDC
 
 @Serializable
 data class WebhookResponse(val processed: Boolean, val error: String? = null)
@@ -51,6 +52,15 @@ fun Route.webhookRoute(config: AppConfig, cipher: ImberaLinkCipher?) {
             return@post
         }
 
+        // Correlation ID (fix 2026-07-16, ver docs/ai/lakehouse-audit-2026-07-16.md,
+        // hallazgo M3, repo KMP Coolector-SDK): el mismo extraction_id embebido en el
+        // object_key de Bronze (`.../extraction_id=<id>/...`) queda en el MDC de logback
+        // durante todo el manejo de este request, para poder filtrar/correlacionar las
+        // líneas de log de un mismo paquete a través de ingestion-api -> parser-service ->
+        // silver-service. No hay dispatch a otro hilo entre aquí y el catch (todo el trabajo
+        // es JDBC bloqueante dentro de esta misma corrutina), así que MDC.put/remove sin
+        // MDCContext es suficiente y no requiere una dependencia nueva de coroutines.
+        MDC.put("correlationId", extractExtractionId(objectKey) ?: objectKey)
         try {
             Class.forName("org.duckdb.DuckDBDriver")
             val silverPath = DriverManager.getConnection("jdbc:duckdb:").use { conn ->
@@ -67,6 +77,12 @@ fun Route.webhookRoute(config: AppConfig, cipher: ImberaLinkCipher?) {
         } catch (e: Exception) {
             logger.error("[WebhookRoute] ERROR processing {}: {}", objectKey, e.message, e)
             call.respond(HttpStatusCode.OK, WebhookResponse(processed = false, error = e.message))
+        } finally {
+            MDC.remove("correlationId")
         }
     }
 }
+
+/** Extrae `extraction_id` del layout Hive-style de Bronze (`.../extraction_id=<id>/...`). */
+private fun extractExtractionId(objectKey: String): String? =
+    Regex("extraction_id=([^/]+)/").find(objectKey)?.groupValues?.get(1)
