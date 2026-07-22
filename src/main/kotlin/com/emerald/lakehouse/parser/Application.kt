@@ -11,6 +11,7 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.request.path
 import io.ktor.server.routing.routing
 import kotlinx.serialization.json.Json
 
@@ -29,7 +30,12 @@ fun Application.lakehouseParserModule(config: AppConfig) {
         json(Json { ignoreUnknownKeys = true })
     }
 
-    install(CallLogging)
+    // El healthcheck de Docker Compose pega a /health cada 5s — sin este filtro,
+    // eso genera una línea de log por request para siempre (json-file sin rotación
+    // configurada en docker-compose.yml, ver docs/ai/lakehouse-context.md).
+    install(CallLogging) {
+        filter { call -> call.request.path() != "/health" }
+    }
 
     routing {
         healthRoute()
