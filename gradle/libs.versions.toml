@@ -1,6 +1,7 @@
 [versions]
 kotlin = "2.3.0"
 ktor = "3.5.1"
+micrometer = "1.14.2"
 logback = "1.5.13"
 minio = "9.0.3"
 kotlinx-coroutines = "1.9.0"
@@ -14,7 +15,10 @@ ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negoti
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-server-status-pages = { module = "io.ktor:ktor-server-status-pages", version.ref = "ktor" }
 ktor-server-call-logging = { module = "io.ktor:ktor-server-call-logging", version.ref = "ktor" }
+ktor-server-metrics-micrometer = { module = "io.ktor:ktor-server-metrics-micrometer", version.ref = "ktor" }
 ktor-server-test-host = { module = "io.ktor:ktor-server-test-host", version.ref = "ktor" }
+
+micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus", version.ref = "micrometer" }
 
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 
