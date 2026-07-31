@@ -93,7 +93,12 @@ class NatsShadowConsumer(
     private fun bindConsumer(conn: Connection): JetStreamSubscription {
         val js = conn.jetStream()
         val options = PullSubscribeOptions.bind("BRONZE_EVENTS", "parser-consumer")
-        return js.subscribe("minio.bronze.events", options)
+        // Con bind() no se pasa subject -- el consumer ya existente (creado por
+        // setup_nats_streams.sh, sin --filter explícito) define su propio alcance. Pasar
+        // un subject aquí lo valida contra el filtro configurado del consumer y falla si no
+        // coincide exactamente (bug real encontrado en el primer despliegue: "[SUB-90011]
+        // Subject does not match consumer configuration filter").
+        return js.subscribe(null, options)
     }
 
     /** Devuelve `true` si se procesó (o se descartó de forma esperada) -- `false` si hay que reintentar. */
