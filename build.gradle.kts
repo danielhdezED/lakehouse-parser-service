@@ -38,6 +38,9 @@ dependencies {
     // en Coolector-SDK y el kdoc de config/AppConfig.kt.
     implementation(libs.coolector.parser)
 
+    // Fase 4b Etapa 3 -- consumer NATS en modo sombra, ver nats/NatsShadowConsumer.kt.
+    implementation(libs.jnats)
+
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.ktor.server.test.host)

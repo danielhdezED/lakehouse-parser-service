@@ -7,6 +7,7 @@ minio = "9.0.3"
 kotlinx-coroutines = "1.9.0"
 duckdb = "1.5.4.0"
 coolectorParser = "1.2.1"
+jnats = "2.21.0"
 
 [libraries]
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
@@ -32,6 +33,11 @@ duckdb-jdbc = { module = "org.duckdb:duckdb_jdbc", version.ref = "duckdb" }
 # Coolector_Parser para que este servicio y el SDK usen exactamente la misma lógica
 # de parsing (ver docs/ai/in-process-analytics-migration-plan.md §2/§3.6 en Coolector-SDK).
 coolector-parser = { module = "com.emerald.coolector:coolector-parser", version.ref = "coolectorParser" }
+
+# Fase 4b Etapa 3 (kubernetes-elastic-infrastructure-plan.md §6) -- consumer NATS en modo
+# sombra, corre en paralelo al webhook actual. Cliente oficial Java/Kotlin de NATS con
+# soporte JetStream.
+jnats = { module = "io.nats:jnats", version.ref = "jnats" }
 
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlin-test-junit5 = { module = "org.jetbrains.kotlin:kotlin-test-junit5", version.ref = "kotlin" }

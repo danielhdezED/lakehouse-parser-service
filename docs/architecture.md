@@ -60,6 +60,7 @@ sincronizó?" y "¿ya llegó el webhook?".
 | Escribe Parquet decodificado a `silver/`, idempotente por `extraction_id` | `silver/SilverWriter.kt` |
 | Corrige el placeholder `"Softel"` → tecnología real por prefijo MAC | `technology/MacTechnologyResolver.kt` |
 | Parseo del payload de notificación de MinIO | `webhooks/MinioNotification.kt` |
+| Consumer NATS en modo sombra (Fase 4b Etapa 3, opcional/best-effort) | `nats/NatsShadowConsumer.kt` |
 
 ## 3. Endpoints
 
@@ -130,6 +131,7 @@ invocación, no un recompute completo) + `DELETE` antes de `INSERT` en
 | `DUCKLAKE_CATALOG_*` | ver `postgres-credentials` | |
 | `PARSER_CIPHER_KEY_PATH` | `/etc/lakehouse-mtls/parser-cipher-key` | solo la semilla, ver §4 |
 | `PARSER_IMBERA_BLOB_PATH` | `/etc/lakehouse-mtls/parser-imbera-blob` | el blob real, ver §4 |
+| `NATS_URL` | `nats://nats.messaging.svc.cluster.local:4222` | ver §8 |
 
 Depende de `com.emerald.coolector:coolector-parser` (GitHub Packages, requiere PAT
 `read:packages` como BuildKit secret para el build de Docker).
@@ -139,3 +141,29 @@ Depende de `com.emerald.coolector:coolector-parser` (GitHub Packages, requiere P
 Mismo stack que `lakehouse-ingestion-api`/`lakehouse-silver-service` (Kotlin `2.3.0`, Ktor
 `3.5.1`, Gradle `8.14.3`, JVM `17`). Corre en k3s como `Deployment` en el namespace
 `lakehouse`, administrado por Terraform (`devops-lakehouse-local/terraform/`).
+
+## 8. Consumer NATS en modo sombra (Fase 4b Etapa 3, agregado 2026-07-31)
+
+`nats/NatsShadowConsumer.kt` — un segundo camino de entrada, en paralelo a
+`POST /webhooks/minio`, que corre exactamente el mismo `ParserPipeline.run`. No lo dispara
+MinIO por HTTP, sino un consumer *pull* durable de NATS JetStream (`parser-consumer` sobre
+el stream `BRONZE_EVENTS`, ver `devops-lakehouse-local/scripts/setup_nats_streams.sh`) —
+MinIO publica a ambos (`notify_webhook` + `notify_nats`) por cada objeto nuevo en `bronze`.
+
+**Por qué es seguro que ambos caminos escriban de verdad, sin coordinarse entre sí:**
+`ParserPipeline`/`SilverWriter` son idempotentes por diseño (nombre de archivo
+determinístico + `DELETE` explícito antes del `INSERT` en `silver.telemetry_decoded`, ver
+§5) — una segunda escritura del mismo dato reemplaza, nunca duplica. El diseño original de
+esta etapa proponía un modo sombra de solo lectura ("procesa y compara, no escribe dos
+veces"); se optó por dejar que escriba de verdad porque la idempotencia ya está probada con
+tests reales, y correr el pipeline dos veces es una validación más fuerte (prueba que el
+camino de escritura tolera disparos duplicados) que comparar sin escribir.
+
+**Diferencia real con el webhook:** el webhook siempre responde `200` (best-effort, MinIO
+nunca reintenta). Este consumer usa `ack`/`nak` reales de JetStream — un fallo real se
+reintenta automáticamente (hasta `max-deliver=5`, configurado al crear el consumer).
+
+**Best-effort al arrancar:** si NATS no está disponible o el consumer/stream no existe
+todavía (falta correr `setup_nats_streams.sh`), el servicio sigue funcionando normal vía el
+webhook — el fallo de conexión solo se loguea, nunca tumba `/health` ni el resto del
+servicio (mismo criterio que `CipherKeyLoader`).

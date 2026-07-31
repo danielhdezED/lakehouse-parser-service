@@ -28,6 +28,7 @@ data class AppConfig(
     val duckLakeDataPath: String,
     val parserCipherKeyPath: String,
     val parserImberaBlobPath: String,
+    val natsUrl: String,
 ) {
     companion object {
         fun fromEnvironment(): AppConfig = AppConfig(
@@ -47,6 +48,7 @@ data class AppConfig(
                 ?: "/etc/lakehouse-mtls/parser-cipher-key",
             parserImberaBlobPath = System.getenv("PARSER_IMBERA_BLOB_PATH")
                 ?: "/etc/lakehouse-mtls/parser-imbera-blob",
+            natsUrl = System.getenv("NATS_URL") ?: "nats://nats.messaging.svc.cluster.local:4222",
         )
     }
 }
