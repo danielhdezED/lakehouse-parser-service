@@ -142,13 +142,26 @@ Mismo stack que `lakehouse-ingestion-api`/`lakehouse-silver-service` (Kotlin `2.
 `3.5.1`, Gradle `8.14.3`, JVM `17`). Corre en k3s como `Deployment` en el namespace
 `lakehouse`, administrado por Terraform (`devops-lakehouse-local/terraform/`).
 
-## 8. Consumer NATS en modo sombra (Fase 4b Etapa 3, agregado 2026-07-31)
+## 8. Consumer NATS — camino real de producción (Fase 4b, agregado 2026-07-31, cortado el webhook 2026-08-03)
 
-`nats/NatsShadowConsumer.kt` — un segundo camino de entrada, en paralelo a
-`POST /webhooks/minio`, que corre exactamente el mismo `ParserPipeline.run`. No lo dispara
-MinIO por HTTP, sino un consumer *pull* durable de NATS JetStream (`parser-consumer` sobre
-el stream `BRONZE_EVENTS`, ver `devops-lakehouse-local/scripts/setup_nats_streams.sh`) —
-MinIO publica a ambos (`notify_webhook` + `notify_nats`) por cada objeto nuevo en `bronze`.
+`nats/NatsShadowConsumer.kt` — corre exactamente el mismo `ParserPipeline.run` que antes
+disparaba `POST /webhooks/minio`. Disparado por un consumer *pull* durable de NATS
+JetStream (`parser-consumer` sobre el stream `BRONZE_EVENTS`, ver
+`devops-lakehouse-local/scripts/setup_nats_streams.sh`). **Desde la Etapa 4 (2026-08-03),
+MinIO ya no publica al target `notify_webhook`** (se quitó con `mc event remove`) — NATS
+es el único camino automático. `POST /webhooks/minio` sigue en el código, sin recibir
+tráfico automático, como mecanismo manual de re-trigger (`curl` directo) para reprocesar
+un objeto puntual sin pasar por la cola.
+
+**Bug real encontrado durante la ventana de transición (ambos caminos activos a la vez,
+2026-08-03), ya no reproducible tras la Etapa 4:** el webhook y NATS procesando el mismo
+objeto Bronze casi simultáneamente chocaron en el catálogo DuckLake (`Transaction
+conflict - attempting to drop table ... but another transaction has dropped it already`)
+— el intento del webhook falló y respondió `200` igual (sin reintento), pero el `nak`
+automático de NATS reintentó y salvó el dato ~6s después. Ver `docs/ai/service-context.md`
+para el detalle completo — la lección real: la idempotencia de `SilverWriter` protege
+contra reintentos *secuenciales*, no contra dos transacciones DuckLake abiertas a la vez;
+cortar el webhook elimina esa clase de conflicto de raíz al dejar un solo camino activo.
 
 **Por qué es seguro que ambos caminos escriban de verdad, sin coordinarse entre sí:**
 `ParserPipeline`/`SilverWriter` son idempotentes por diseño (nombre de archivo
